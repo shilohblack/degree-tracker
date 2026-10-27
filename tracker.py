@@ -65,6 +65,17 @@ def grade_points(grade):
     return GRADE_POINTS.get(grade)
 
 
+def is_gen_ed(course):
+    """True if the course carries a general education designation.
+
+    This is an attribute, not a category. A course can be Foundation Biology
+    AND general education at the same time, which is how real degree audits
+    work: BIOL 101 counts toward the major and satisfies the natural science
+    requirement from the same four units.
+    """
+    return course["gen_ed"]
+
+
 def is_major(course):
     """True if the course counts toward the 50-unit major requirement.
 
@@ -170,14 +181,8 @@ def planned_elective_units(courses):
 
 
 def planned_gen_ed_units(courses):
-    """Units categorised as general education.
-
-    This UNDER-COUNTS on purpose. Each course here carries one category, but
-    UA lets a single course satisfy both a major requirement and a GE one.
-    MCB 181R, for example, is Foundation Biology here and also satisfies the
-    Natural Scientist GE. The real audit figure is higher than this.
-    """
-    return _units(courses, lambda c: is_planned(c) and c["category"] == "Gen Ed")
+    """Units carrying a general education designation."""
+    return _units(courses, lambda c: is_planned(c) and is_gen_ed(c))
 
 
 # --------------------------------------------------------------- the report
@@ -194,7 +199,7 @@ ROWS = [
      lambda cs: _units(cs, lambda c: is_completed(c) and c["category"] == "Major Elective"),
      planned_elective_units),
     ("general education units", "gen_ed",
-     lambda cs: _units(cs, lambda c: is_completed(c) and c["category"] == "Gen Ed"),
+     lambda cs: _units(cs, lambda c: is_completed(c) and is_gen_ed(c)),
      planned_gen_ed_units),
 ]
 
@@ -210,8 +215,6 @@ def requirement_report(courses):
         status = "PASS" if planned >= needed else "SHORT"
         print(f"{label:26}{earned:8.0f}{planned:9.0f}{needed:8}   {status}")
     print("-" * 60)
-    print("General education under-counts: a course has one category here,")
-    print("but UA lets one course satisfy both a major and a GE requirement.")
 
 
 if __name__ == "__main__":

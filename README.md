@@ -33,7 +33,7 @@ elective requirement, and a test asserts it stays that way.
 ## Running it
 
 ```
-python check.py        # 30 assertions
+python check.py        # 32 assertions
 python tracker.py      # requirement report
 python projection.py   # GPA projection
 ```
@@ -85,7 +85,7 @@ test suite.
 | `data.py` | Sample courses and the requirements. Synthetic. |
 | `tracker.py` | Requirement logic and the report. |
 | `projection.py` | GPA projection and grade scenarios. |
-| `check.py` | 30 assertions, pinned to the sample data. |
+| `check.py` | 32 assertions, pinned to the sample data. |
 
 ## The interesting parts
 
@@ -102,10 +102,21 @@ even with straight A grades, rather than printing a number above 4.0.
 courses you name. The report calls it with the two heaviest courses in the
 next ungraded term, but you can point it at any list of codes.
 
-## Known limitation
+## Pools are not mutually exclusive
 
-General education under-counts. Each course carries one category here, while
-real degree audits let a single course satisfy both a major requirement and
-a general education one. Modelling that properly means a course belonging to
-a set of pools rather than one, which is the next real change this code
-needs.
+A course's `category` decides its major pool, but general education is a
+separate boolean attribute, because real audits let one course satisfy both
+from the same units. `BIOL 101` is Foundation Biology *and* general
+education: its four units count toward the 50-unit major requirement and the
+32-unit general education requirement at once.
+
+Getting this wrong is an easy way to under-count by ten units or more and
+conclude you are short when you are not. Three assertions guard it.
+
+## Still simplified
+
+Each course has exactly one major category, so a course that could satisfy
+either of two major pools is pinned to one of them. Real audits resolve that
+by picking the assignment that best satisfies the whole set, which is a
+small optimisation problem rather than a lookup. For a plan this size the
+difference does not bite, but it is the honest next limitation.

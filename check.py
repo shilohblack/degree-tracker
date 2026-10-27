@@ -56,21 +56,29 @@ check("planned_major_units", tracker.planned_major_units(COURSES), 51.0)
 check("planned_major_upper_division_units",
       tracker.planned_major_upper_division_units(COURSES), 42.0)
 check("planned_elective_units", tracker.planned_elective_units(COURSES), 25.0)
-check("planned_gen_ed_units", tracker.planned_gen_ed_units(COURSES), 27.0)
+check("planned_gen_ed_units", tracker.planned_gen_ed_units(COURSES), 38.0)
+
+# General education is an attribute, not a category, so a course can count
+# toward the major AND satisfy a GE requirement from the same units. BIOL 101
+# is the case to protect: Foundation Biology, and general education too.
+biol = [c for c in COURSES if c["code"] == "BIOL 101"][0]
+check("BIOL 101 is a major course", tracker.is_major(biol), True)
+check("BIOL 101 is also general education", tracker.is_gen_ed(biol), True,
+      "if these stop being independent, GE under-counts again")
+check("its units are counted in both pools",
+      biol["units"] <= tracker.planned_major_units(COURSES)
+      and biol["units"] <= tracker.planned_gen_ed_units(COURSES), True)
 
 
 # ------------------------------- the sample plan is short, on purpose
 
 # A sample where everything passes would not show the tool doing anything.
-# This student is 13 units short overall and 5 short on general education,
-# so the report prints both PASS and SHORT. These two assertions exist so
-# that nobody later "fixes" the sample and quietly removes the demonstration.
+# This student is 13 units short overall, so the report prints both PASS and
+# SHORT. This assertion exists so nobody later "fixes" the sample and quietly
+# removes the demonstration.
 check("sample is short on total units",
       tracker.planned_total_units(COURSES) < REQUIREMENTS["total_units"], True,
       "deliberate: 107 against 120")
-check("sample is short on general education",
-      tracker.planned_gen_ed_units(COURSES) < REQUIREMENTS["gen_ed"], True,
-      "deliberate: 27 against 32")
 
 
 # ------------------------------------------------------ the decoy course
