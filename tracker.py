@@ -12,7 +12,8 @@ Run it:    python tracker.py
 Check it:  python check.py
 """
 
-from data import COURSES, REQUIREMENTS, MAJOR_CATEGORIES
+import allocate
+from data import COURSES, COURSE_REQUIREMENTS, REQUIREMENTS, MAJOR_POOLS
 
 GRADE_POINTS = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "E": 0.0}
 
@@ -76,13 +77,25 @@ def is_gen_ed(course):
     return course["gen_ed"]
 
 
+def pool_of(course):
+    """The named requirement this course fills, or None.
+
+    After the allocator has run, a course carries a single resolved "pool".
+    Before it has, fall back to the first option it is eligible for, so the
+    functions below work on raw data too.
+    """
+    if "pool" in course:
+        return course["pool"]
+    return course["pools"][0] if course["pools"] else None
+
+
 def is_major(course):
     """True if the course counts toward the 50-unit major requirement.
 
-    MAJOR_CATEGORIES lives in data.py and is the single source of truth.
+    MAJOR_POOLS lives in data.py and is the single source of truth.
     Do not write a second copy of this list anywhere.
     """
-    return course["category"] in MAJOR_CATEGORIES
+    return pool_of(course) in MAJOR_POOLS
 
 
 def _units(courses, keep):
@@ -172,12 +185,12 @@ def planned_major_upper_division_units(courses):
 def planned_elective_units(courses):
     """Units from courses the audit accepts as major electives.
 
-    A course counts only if its category is "Major Elective". EPID 309 is
-    deliberately categorised "Other Upper Division" because it is not on the
-    audit's approved list, so it is excluded here automatically. There is no
-    second approved-codes list to keep in sync.
+    A course counts only if the allocator assigned it to "Major Elective".
+    EPID 309 has no pools at all, because it is not on the audit's approved
+    list, so it is excluded automatically. There is no second approved-codes
+    list to keep in sync.
     """
-    return _units(courses, lambda c: is_planned(c) and c["category"] == "Major Elective")
+    return _units(courses, lambda c: is_planned(c) and pool_of(c) == "Major Elective")
 
 
 def planned_gen_ed_units(courses):
@@ -186,6 +199,59 @@ def planned_gen_ed_units(courses):
 
 
 # --------------------------------------------------------------- the report
+
+def measure(courses, key):
+    """How many units a requirement has, by its key in REQUIREMENTS.
+
+    allocate.best() uses this to score competing assignments, which is why
+    it is a plain lookup rather than six separate calls.
+    """
+    return {
+        "total_units": planned_total_units,
+        "upper_division": planned_upper_division_units,
+        "major_units": planned_major_units,
+        "major_upper_division": planned_major_upper_division_units,
+        "major_electives": planned_elective_units,
+        "gen_ed": planned_gen_ed_units,
+    }[key](courses)
+
+
+def courses_in_pool(courses, pool):
+    """How many planned courses are assigned to a named pool."""
+    return sum(1 for c in courses if is_planned(c) and pool_of(c) == pool)
+
+
+def score(resolved):
+    """Rank an assignment: requirements met first, then smallest shortfall.
+
+    Surplus deliberately counts for nothing. Banking three spare elective
+    units is worth less than filling a requirement you cannot graduate
+    without, and scoring surplus as credit makes the allocator prefer the
+    former.
+
+    Both kinds of requirement are counted. Unit requirements come from
+    REQUIREMENTS, course-count requirements from COURSE_REQUIREMENTS. Leaving
+    the second kind out is how an allocator ends up moving the only course
+    that can satisfy a requirement somewhere else.
+    """
+    met = 0
+    shortfall = 0.0
+    for key, needed in REQUIREMENTS.items():
+        have = measure(resolved, key)
+        shortfall += min(have - needed, 0)   # surplus is waste, not credit
+        met += have >= needed
+    for pool, needed in COURSE_REQUIREMENTS.items():
+        have = courses_in_pool(resolved, pool)
+        shortfall += min(have - needed, 0)
+        met += have >= needed
+    return met, shortfall
+
+
+def prepare(courses):
+    """Resolve every contested course to one pool, best assignment first."""
+    resolved, choices, _value = allocate.best(courses, score)
+    return resolved, choices
+
 
 ROWS = [
     ("total units", "total_units", earned_units, planned_total_units),
@@ -196,7 +262,7 @@ ROWS = [
     ("major upper division", "major_upper_division",
      completed_major_upper_division_units, planned_major_upper_division_units),
     ("major elective units", "major_electives",
-     lambda cs: _units(cs, lambda c: is_completed(c) and c["category"] == "Major Elective"),
+     lambda cs: _units(cs, lambda c: is_completed(c) and pool_of(c) == "Major Elective"),
      planned_elective_units),
     ("general education units", "gen_ed",
      lambda cs: _units(cs, lambda c: is_completed(c) and is_gen_ed(c)),
@@ -214,15 +280,30 @@ def requirement_report(courses):
         planned = planned_fn(courses)
         status = "PASS" if planned >= needed else "SHORT"
         print(f"{label:26}{earned:8.0f}{planned:9.0f}{needed:8}   {status}")
+    for pool, needed in COURSE_REQUIREMENTS.items():
+        have = courses_in_pool(courses, pool)
+        done = sum(1 for c in courses if is_completed(c) and pool_of(c) == pool)
+        status = "PASS" if have >= needed else "UNFILLED"
+        print(f"{pool.lower() + ' (courses)':26}{done:8}{have:9}{needed:8}   {status}")
     print("-" * 60)
 
 
 if __name__ == "__main__":
-    courses, source = load_courses()
+    raw, source = load_courses()
+    courses, choices = prepare(raw)
     result = calculate_gpa(courses)
+
     print(f"source                      : {source}")
     print(f"Courses with a posted grade : {count_courses(courses)}")
     print(f"Cumulative GPA              : {result['gpa']}"
           f"  ({result['total_points']:.0f} points / {result['gpa_units']:.0f} units)")
     print()
+
+    decisions = allocate.explain(raw, choices)
+    if decisions:
+        print("Allocator decisions")
+        for line in decisions:
+            print(f"  {line}")
+        print()
+
     requirement_report(courses)

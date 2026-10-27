@@ -55,7 +55,8 @@ check("planned_upper_division_units",
 check("planned_major_units", tracker.planned_major_units(COURSES), 51.0)
 check("planned_major_upper_division_units",
       tracker.planned_major_upper_division_units(COURSES), 42.0)
-check("planned_elective_units", tracker.planned_elective_units(COURSES), 25.0)
+check("planned_elective_units", tracker.planned_elective_units(COURSES), 22.0,
+      "22 not 25, because BINF 340 is needed to complete Major Core")
 check("planned_gen_ed_units", tracker.planned_gen_ed_units(COURSES), 38.0)
 
 # General education is an attribute, not a category, so a course can count
@@ -83,15 +84,56 @@ check("sample is short on total units",
 
 # ------------------------------------------------------ the decoy course
 
-# EPID 309 is upper division and looks like an elective. It is categorised
-# Other Upper Division, so it must not count toward the elective requirement.
-# If this ever flips, planned_elective_units silently overstates by 3 units.
+# EPID 309 is upper division and looks like an elective, but it is not on the
+# audit's approved list, so it has no pools at all and must never be assigned
+# to one. If this ever changes, planned_elective_units overstates by 3 units.
 epid = [c for c in COURSES if c["code"] == "EPID 309"][0]
-check("EPID 309 is not a Major Elective",
-      epid["category"] != "Major Elective", True)
+check("EPID 309 is eligible for no major pool", epid["pools"], [])
+resolved, _ = tracker.prepare(COURSES)
+check("EPID 309 is never allocated to a pool",
+      [c for c in resolved if c["code"] == "EPID 309"][0]["pool"] is None, True)
 check("EPID 309 still counts as upper division",
       epid["upper_division"], True,
       "it is not an elective, but it is still a 300-level course")
+
+
+# ---------------------------------------------------------- the allocator
+
+import allocate
+from data import COURSE_REQUIREMENTS
+
+allocated, picks = tracker.prepare(COURSES)
+
+check("two courses are genuinely contested",
+      sorted(c["code"] for c in allocate.ambiguous(COURSES)),
+      ["BINF 340", "DATA 321"])
+check("every course ends up in exactly one pool or none",
+      all("pool" in c and (c["pool"] is None or c["pool"] in c["pools"])
+          for c in allocated), True)
+
+# The point of the allocator. DATA 321 is the only course that can fill the
+# Data Course requirement, so it must go there even though parking it in
+# electives would bank three more elective units.
+check("DATA 321 fills Data Course, not electives",
+      picks["DATA 321"], "Data Course",
+      "moving it to electives leaves Data Course unfilled forever")
+check("BINF 340 completes Major Core",
+      picks["BINF 340"], "Major Core")
+for pool, needed in COURSE_REQUIREMENTS.items():
+    check(f"{pool} is filled", tracker.courses_in_pool(allocated, pool) >= needed,
+          True, "a named requirement must never be left empty to bank surplus")
+
+# Surplus must not outrank a shortfall. Parking both contested courses in
+# electives gives more elective units and leaves two requirements unfilled;
+# the chosen assignment must score better than that.
+greedy = allocate.resolve(COURSES, {"DATA 321": "Major Elective",
+                                    "BINF 340": "Major Elective"})
+check("filling requirements beats banking surplus units",
+      tracker.score(allocated) > tracker.score(greedy), True)
+check("the greedy assignment really does bank more electives",
+      tracker.planned_elective_units(greedy)
+      > tracker.planned_elective_units(allocated), True,
+      "if this fails the comparison above proves nothing")
 
 
 # ---------------------------------------------------------- projection

@@ -33,7 +33,7 @@ elective requirement, and a test asserts it stays that way.
 ## Running it
 
 ```
-python check.py        # 32 assertions
+python check.py        # 41 assertions
 python tracker.py      # requirement report
 python projection.py   # GPA projection
 ```
@@ -85,7 +85,8 @@ test suite.
 | `data.py` | Sample courses and the requirements. Synthetic. |
 | `tracker.py` | Requirement logic and the report. |
 | `projection.py` | GPA projection and grade scenarios. |
-| `check.py` | 32 assertions, pinned to the sample data. |
+| `allocate.py` | Decides which requirement a contested course fills. |
+| `check.py` | 41 assertions, pinned to the sample data. |
 
 ## The interesting parts
 
@@ -113,10 +114,31 @@ education: its four units count toward the 50-unit major requirement and the
 Getting this wrong is an easy way to under-count by ten units or more and
 conclude you are short when you are not. Three assertions guard it.
 
-## Still simplified
+## Courses that could fill more than one requirement
 
-Each course has exactly one major category, so a course that could satisfy
-either of two major pools is pinned to one of them. Real audits resolve that
-by picking the assignment that best satisfies the whole set, which is a
-small optimisation problem rather than a lookup. For a plan this size the
-difference does not bite, but it is the honest next limitation.
+A course lists the pools it is *eligible* for. Most list one, so there is
+nothing to decide. Some list two, and then the choice matters.
+
+The real case: `ISTA 321` and `ISTA 322` can both satisfy the Data Course
+requirement, but only `ISTA 321` is on the approved elective list. Put
+`ISTA 321` in the Data Course slot and `ISTA 322` has nowhere to go, losing
+three elective units. Put `ISTA 322` there instead and both count.
+
+`allocate.py` tries every assignment of the contested courses and keeps the
+one that satisfies the most requirements, breaking ties on smallest total
+shortfall. The search is exhaustive, which is fine because it is exponential
+only in the number of genuinely contested courses, and that is a handful.
+
+Two things it gets right that a greedy version does not:
+
+**Surplus counts for nothing.** Banking three spare elective units is worth
+less than filling a requirement you cannot graduate without. Score surplus
+as credit and the allocator will cheerfully strip the only course that can
+satisfy a requirement in order to pad a pool that was already full.
+
+**Course-count requirements are scored too.** Data Course needs one course
+and Major Core needs five. An allocator that only knows about unit totals
+will empty those to feed the unit pools, and nothing will notice.
+
+The report prints both kinds, so an unfilled requirement is visible rather
+than implied by a number being lower than expected.
