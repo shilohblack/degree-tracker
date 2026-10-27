@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+
+# your real record, never committed
+my_data.py
